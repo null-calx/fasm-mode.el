@@ -1,0 +1,5 @@
+#+TITLE: fasm-mode
+
+~fasm-mode~ is a major mode for editing [[https://flatassembler.net/][FASM]] assembly programs. It
+includes syntax highlighting, and automatic indentation. This software
+takes heavy insipiration from ~nasm-mode~.
