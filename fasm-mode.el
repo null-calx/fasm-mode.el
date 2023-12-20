@@ -1,5 +1,29 @@
 ;;; fasm-mode.el --- FASM major mode
 
+;; This is free and unencumbered software released into the public domain.
+
+;; Author: calx
+;; URL: https://github.com/null-calx/fasm-mode.el
+;; URL: https://istaroth.xyz/files/fasm-mode.el
+;; Version: 1.0.0
+
+;;; Commentary:
+
+;; A major mode for editing FASM assembly programs. It includes syntax
+;; highlighting, and automatic indentation. This software takes heavy
+;; insipiration from `nasm-mode'.
+
+;; References and resources, used:
+;; 1. https://github.com/skeeto/nasm-mode
+;; 2. emacs and elisp manual
+;; 3. https://www.omarpolo.com/post/writing-a-major-mode.html
+;; 4. https://github.com/the-little-language-designer/fasm-mode (only
+;;    for keyword, instruction, directive, etc. list)
+
+;; FASM Home: https://flatassembler.net/
+
+;;; Code:
+
 (defgroup fasm-mode ()
   "Options for `fasm-mode'."
   :group 'languages)
@@ -377,6 +401,8 @@ This can be :tab, :space, or nil (do nothing)."
   `(eval-when-compile
      (regexp-opt ,keywords 'words)))
 
+;; TODO: check if the number regexp match fasm syntax
+;; TODO: check for signs too
 (defconst fasm--number-binary-regexp
   "\\_<[01]+b\\_>"
   "Regexp for matching binary numbers in `fasm-mode'.")
@@ -400,6 +426,7 @@ This can be :tab, :space, or nil (do nothing)."
 	  fasm--number-decimal-regexp)
   "Regexp for matching numbers in `fasm-mode'.")
 
+;; TODO: check all other regexp
 (defconst fasm--label-regexp
   "\\([a-z$A-Z0-9.?!@]\\(?:\\sw\\|\\s_\\)*\\):"
   "Regexp for matching labels in `fasm-mode'.")
@@ -409,7 +436,7 @@ This can be :tab, :space, or nil (do nothing)."
   "Regexp for matching macro names in `fasm-mode'.")
 
 ;; TODO: not sure about this regexp, because it's not copied
-;; also, add other constant definition
+;; TODO: add other constant definition
 (defconst fasm--constant-name-regexp
   "\\([a-zA-Z0-9_$]+\\)[ \t]*\\(=\\|db\\|equ\\)"
   "Regexp for matching constant names in `fasm-mode'.")
