@@ -13,10 +13,20 @@
   :type 'integer
   :group 'fasm-mode)
 
+(defcustom fasm-bracket-offset 4
+  "Indentation level for curly brackets in `fasm-mode'."
+  :type 'integer
+  :group 'fasm-mode)
+
 (defcustom fasm-after-mnemonic-whitespace :tab
   "In `fasm-mode', determines the whitespace to use after mnemonics.
 This can be :tab, :space, or nil (do nothing)."
   :type '(choice (const :tab) (const :space) (const nil))
+  :group 'fasm-mode)
+
+(defcustom fasm-comment-column (default-value 'comment-column)
+  "Column to indent right-margin comments to in `fasm-mode'."
+  :type 'integer
   :group 'fasm-mode)
 
 (defface fasm-registers
@@ -52,6 +62,11 @@ This can be :tab, :space, or nil (do nothing)."
 (defface fasm-macro-name
   '((t :inherit (font-lock-function-name-face)))
   "Face for nonlocal labels."
+  :group 'fasm-mode-faces)
+
+(defface fasm-constant-name
+  '((t :inherit (font-lock-variable-name-face)))
+  "Face for constant names"
   :group 'fasm-mode-faces)
 
 (defface fasm-constant
@@ -386,22 +401,29 @@ This can be :tab, :space, or nil (do nothing)."
   "Regexp for matching numbers in `fasm-mode'.")
 
 (defconst fasm--label-regexp
-  "^[ \t]*\\([a-z$A-Z0-9.?!@]\\(?:\\sw\\|\\s_\\)*\\):"
+  "\\([a-z$A-Z0-9.?!@]\\(?:\\sw\\|\\s_\\)*\\):"
   "Regexp for matching labels in `fasm-mode'.")
 
 (defconst fasm--macro-name-regexp
   "\\(?:macro\\|struc\\)[ \t]+\\([a-zA-Z0-9.?!@]\\(?:\\sw\\|\\s_\\)*\\)"
   "Regexp for matching macro names in `fasm-mode'.")
 
+;; TODO: not sure about this regexp, because it's not copied
+;; also, add other constant definition
+(defconst fasm--constant-name-regexp
+  "\\([a-zA-Z0-9_$]+\\)[ \t]*\\(=\\|db\\|equ\\)"
+  "Regexp for matching constant names in `fasm-mode'.")
+
 (defconst fasm-font-lock-keywords
   `((,fasm--number-regexp 			. 'fasm-constant)
     (,fasm--label-regexp			. (1 'fasm-labels))
     (,fasm--macro-name-regexp			. (1 'fasm-macro-name))
+    (,fasm--constant-name-regexp		. (1 'fasm-constant-name))
     (,(fasm--opt fasm--type-list)		. 'fasm-types)
     (,(fasm--opt fasm--register-list) 		. 'fasm-registers)
     (,(fasm--opt fasm--instruction-list)	. 'fasm-instructions)
     (,(fasm--opt fasm--directive-list) 		. 'fasm-directives)
-    (,(fasm--opt fasm--pp-directive-list) 	. 'fasm-preprocessor))
+    (,(fasm--opt fasm--pp-directive-list)	. 'fasm-preprocessor))
   "Font lock keywords for `fasm-mode'.")
 
 (defconst fasm-mode-syntax-table
@@ -429,12 +451,127 @@ This can be :tab, :space, or nil (do nothing)."
     (syntax-table))
   "Syntax table for `fasm-mode'.")
 
+(defvar fasm-mode-map
+  (let ((map (make-sparse-keymap)))
+    (prog1 map
+      (define-key map (kbd ":") #'fasm-colon)
+      (define-key map (kbd ";") #'fasm-comment)))
+  "Key bindings for `fasm-mode'.")
+
+(defun fasm-colon ()
+  "Indent after inserting a colon and converting the current line
+into a label."
+  (interactive)
+  (call-interactively #'self-insert-command)
+  (fasm-indent-line))
+
+(defun fasm-comment (&optional kill)
+  "Begin a comment.
+
+If the line has code, indent first. With a prefix arg, kill the
+comment on the current line with `comment-kill'."
+  (interactive "p")
+  (cond
+   ;; have a prefix arg? kill comment
+   ((not (eql kill 1))
+    (comment-kill nil))
+   ;; empty line, or inside an indentation, string or comment? insert
+   ((or (fasm--empty-line-p)
+	(fasm--inside-indentation-p)
+	(nth 3 (syntax-ppss))
+	(nth 4 (syntax-ppss))) ; TODO: use `syntax-ppss' once only
+    (insert ";"))
+   ;; line has code? jump to right-side and insert
+   ((fasm--line-has-non-comment-p)
+    (comment-indent))
+   ;; otherwise insert
+   ((insert ";"))))
+
+;; TODO: this functino doesn't make sense
+(defun fasm-indent-line ()
+  "Indent current line (or insert a tab) as FASM assembly code.
+This will be called by `indent-for-tab-command' when TAB is
+pressed. We indent the entire line as appropriate whenever POINT
+is not immediately after a mnemonic; otherwise, we insert a tab."
+  (interactive)
+  (let ((length-from-behind (- (point-max) (point))))
+    (cond
+     ;; should indent line to zero
+     ((save-excursion
+	(back-to-indentation)
+	(or (looking-at ";;+")
+	    (looking-at fasm--label-regexp)
+	    (looking-at fasm--constant-name-regexp)
+	    (looking-at (fasm--opt fasm--directive-list))
+	    (looking-at (fasm--opt fasm--pp-directive-list))))
+      (indent-line-to 0))
+     ;; half-indent curly brackets
+     ((save-excursion
+	(back-to-indentation)
+	(or (looking-at "{")
+	    (looking-at "}")))
+      (indent-line-to fasm-bracket-offset))
+     ;; jump to offset
+     ((and (not (fasm--empty-line-p))
+	   (not (fasm--inside-indentation-p))
+	   (not (nth 4 (syntax-ppss))))
+      (cl-case fasm-after-mnemonic-whitespace
+	(:tab   (insert "\t"))
+	(:space (inser-char ?\s fasm-basic-offset))))
+     ;; otherwise indent to basic-offset
+     ((indent-line-to fasm-basic-offset)))
+    (when (> (- (point-max) length-from-behind) (point))
+      (goto-char (- (point-max) length-from-behind)))))
+
+(defun fasm--current-line ()
+  "Return the current line as a string."
+  (save-excursion
+    (let ((start (progn (beginning-of-line) (point)))
+	  (end (progn (end-of-line) (point))))
+      (buffer-substring-no-properties start end))))
+
+(defun fasm--empty-line-p ()
+  "Return non-nil if current line has non-whitespace."
+  (not (string-match-p "\\S-" (fasm--current-line))))
+
+(defun fasm--inside-indentation-p ()
+  "Return non-nil if point is within the indentation."
+  (save-excursion
+    (let ((point (point))
+	  (start (progn (beginning-of-line) (point)))
+	  (end (progn (back-to-indentation) (point))))
+      (and (<= start point) (<= point end)))))
+
+(defun fasm--line-has-non-comment-p ()
+  "Return non-nil if current line has code."
+  (let* ((line (fasm--current-line))
+	 (match (string-match-p "\\S-" line)))
+    (when match
+      (not (eql ?\; (aref line match))))))
+
+(defun fasm-comment-indent ()
+  "Compute desired indentation for comment on the current line."
+  fasm-comment-column)
+
+(defun fasm-insert-comment ()
+  "Insert a comment if the current line doesn't contain one."
+  (let ((comment-insert-comment-function nil))
+    (comment-indent)))
+
+;;;###autoload
 (define-derived-mode fasm-mode prog-mode "FASM"
   "Major mode for editing FASM assembly programs."
+  :group 'fasm-mode
   (make-local-variable 'comment-start)
+  (make-local-variable 'indent-line-function)
   (make-local-variable 'font-lock-defaults)
-  (setf comment-start ";")
-  (setf font-lock-defaults '(fasm-font-lock-keywords nil :case-fold)))
+  (make-local-variable 'comment-indent-function)
+  (make-local-variable 'comment-insert-comment-function)
+  (setf comment-start ";"
+	font-lock-defaults '(fasm-font-lock-keywords nil :case-fold)
+	indent-line-function #'fasm-indent-line
+	comment-indent-function #'fasm-comment-indent
+	comment-insert-comment-function #'fasm-insert-comment))
 
 (provide 'fasm-mode)
 
