@@ -544,7 +544,7 @@ is not immediately after a mnemonic; otherwise, we insert a tab."
 	   (not (nth 4 (syntax-ppss))))
       (cl-case fasm-after-mnemonic-whitespace
 	(:tab   (insert "\t"))
-	(:space (inser-char ?\s fasm-basic-offset))))
+	(:space (insert-char ?\s fasm-basic-offset))))
      ;; otherwise indent to basic-offset
      ((indent-line-to fasm-basic-offset)))
     (when (> (- (point-max) length-from-behind) (point))
